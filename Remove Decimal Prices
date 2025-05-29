@@ -1,0 +1,131 @@
+<?php 
+
+/**
+ * Remove .00 decimal places from WooCommerce prices
+ * This handles both initial page load (PHP) and AJAX-loaded content (JS)
+ * This code snippet is better used on code snippet plugin
+ */
+
+// Part 1: PHP filters for initial page load
+add_filter('woocommerce_get_price_html', 'remove_zeros_from_price_html', 10, 2);
+function remove_zeros_from_price_html($price_html, $product) {
+    // Only modify on product or archive pages
+    if (is_product() || is_shop() || is_product_category() || is_product_tag()) {
+        // Remove .00 from price display
+        $price_html = preg_replace('/\.00(?=[^0-9]|$)/', '', $price_html);
+    }
+    
+    return $price_html;
+}
+
+// For other areas where formatted_woocommerce_price is used
+add_filter('formatted_woocommerce_price', 'remove_zeros_from_price', 10, 5);
+function remove_zeros_from_price($formatted_price, $price, $decimals, $decimal_separator, $thousand_separator) {
+    // Only modify on product or archive pages
+    if (is_product() || is_shop() || is_product_category() || is_product_tag()) {
+        // Remove .00 from price display
+        $formatted_price = preg_replace('/\\' . $decimal_separator . '00(?=[^0-9]|$)/', '', $formatted_price);
+    }
+    
+    return $formatted_price;
+}
+
+// Part 2: JavaScript for AJAX-loaded content - more aggressive approach
+add_action('wp_footer', 'remove_zeros_from_ajax_prices');
+function remove_zeros_from_ajax_prices() {
+    // Only add JS on archive or product pages
+    if (is_product() || is_shop() || is_product_category() || is_product_tag()) {
+        ?>
+        <script>
+        (function($) {
+            // Function to remove .00 from prices
+            function removeZerosFromPrices() {
+                // Target all price elements including those in newly loaded content
+                jQuery('.woocommerce-Price-amount, .price, .amount').each(function() {
+                    var priceText = jQuery(this).html();
+                    // Check if this contains .00
+                    if (priceText && priceText.indexOf('.00') !== -1) {
+                        // Replace .00 with empty string but preserve HTML
+                        priceText = priceText.replace(/\.00(?=\D|$)/g, '');
+                        jQuery(this).html(priceText);
+                    }
+                });
+            }
+            
+            // Run immediately
+            removeZerosFromPrices();
+            
+            // Polling approach - check periodically for new prices
+            setInterval(function() {
+                removeZerosFromPrices();
+            }, 1000); // Check every second
+            
+            // Watch for scroll events which often trigger infinite loading
+            jQuery(window).on('scroll', function() {
+                setTimeout(function() {
+                    removeZerosFromPrices();
+                }, 200); // Small delay to let content load
+            });
+            
+            // Hook into document mutations (most reliable but could be performance intensive)
+            if (window.MutationObserver) {
+                var observer = new MutationObserver(function(mutations) {
+                    mutations.forEach(function(mutation) {
+                        if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+                            // Check if any price elements were added
+                            for (var i = 0; i < mutation.addedNodes.length; i++) {
+                                var node = mutation.addedNodes[i];
+                                if (node.nodeType === 1) { // Only process element nodes
+                                    if (node.classList && 
+                                       (node.classList.contains('product') || 
+                                        node.classList.contains('woocommerce-Price-amount') || 
+                                        node.classList.contains('price') || 
+                                        node.classList.contains('amount'))) {
+                                        removeZerosFromPrices();
+                                        break;
+                                    } else if (node.querySelectorAll) {
+                                        // Check children
+                                        var hasPriceElements = node.querySelectorAll('.woocommerce-Price-amount, .price, .amount').length > 0;
+                                        if (hasPriceElements) {
+                                            removeZerosFromPrices();
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                });
+                
+                // Observe the entire document
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true
+                });
+            }
+            
+            // Catch any AJAX requests
+            $(document).ajaxComplete(function() {
+                setTimeout(function() {
+                    removeZerosFromPrices();
+                }, 100);
+            });
+            
+            // Try to hook into Bricks-specific events (adjust if needed)
+            $(document).on('bricks-ajax-load-completed bricks-ajax-pagination bricks-ajax-load', function() {
+                setTimeout(function() {
+                    removeZerosFromPrices();
+                }, 100);
+            });
+            
+            // Infinite scroll events
+            $(document).on('post-load infiniteScroll.afterRetrieve load.infiniteScroll', function() {
+                setTimeout(function() {
+                    removeZerosFromPrices();
+                }, 100);
+            });
+        })(jQuery);
+        </script>
+        <?php
+    }
+}
